@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Protocol Analyzer</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css" />
+    <style>
+        body {
+            padding: 2rem;
+        }
+
+        .grid-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .metric-card {
+            text-align: center;
+            border: 1px solid var(--pico-primary-border);
+            padding: 1rem;
+            border-radius: var(--pico-border-radius);
+            background: var(--pico-card-background-color);
+        }
+
+        .metric-card h3 {
+            margin-bottom: 0.5rem;
+            color: var(--pico-primary);
+            font-size: 0.9rem;
+        }
+
+        .metric-card p {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin: 0;
+            color: var(--pico-color);
+        }
+        
+        #results-section {
+            margin-top: 2rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--pico-muted-border-color);
+        }
+
+        #loader, #results-data, #error-message {
+            display: none;
+        }
+
+        .waterfall-container {
+            background: var(--pico-card-background-color);
+            border: 1px solid var(--pico-muted-border-color);
+            border-radius: var(--pico-border-radius);
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+
+        .waterfall-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            font-size: 0.85rem;
+        }
+
+        .waterfall-label {
+            min-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            margin-right: 1rem;
+        }
+
+        .waterfall-bar-container {
+            flex: 1;
+            height: 20px;
+            background: var(--pico-muted-background-color);
+            border-radius: 3px;
+            position: relative;
+            margin-right: 1rem;
+        }
+
+        .waterfall-bar {
+            height: 100%;
+            border-radius: 3px;
+            position: relative;
+        }
+
+        .waterfall-time {
+            min-width: 60px;
+            text-align: right;
+            font-weight: bold;
+        }
+
+        .bar-html { background: #ff6b6b; }
+        .bar-css { background: #4ecdc4; }
+        .bar-js { background: #45b7d1; }
+        .bar-image { background: #96ceb4; }
+        .bar-font { background: #feca57; }
+        .bar-other { background: #a55eea; }
+
+        .error-card {
+            background: var(--pico-del-background-color);
+            border: 1px solid var(--pico-del-color);
+            padding: 1rem;
+            border-radius: var(--pico-border-radius);
+            margin: 1rem 0;
+        }
+
+        .success-indicator {
+            color: var(--pico-ins-color);
+        }
+
+        .warning-indicator {
+            color: #feca57;
+        }
+
+        .error-indicator {
+            color: var(--pico-del-color);
+        }
+
+        .protocol-badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            background: var(--pico-primary);
+            color: white;
+            border-radius: var(--pico-border-radius);
+            font-size: 0.8rem;
+            font-weight: bold;
+            margin-left: 0.5rem;
+        }
+
+        .loading-dots {
+            display: inline-block;
+        }
+
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: ''; }
+            40% { content: '.'; }
+            60% { content: '..'; }
+            80%, 100% { content: '...'; }
+        }
+
+        @media (max-width: 768px) {
+            .waterfall-label {
+                min-width: 120px;
+            }
+            
+            .waterfall-time {
+                min-width: 50px;
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header class="container">
+        <hgroup>
+            <h1>🌐 HTTP Protocol Analyzer</h1>
+            <h2>Analiza el rendimiento de un sitio web bajo diferentes versiones de HTTP</h2>
+        </hgroup>
+    </header>
+
+    <main class="container">
+        <section id="input-section">
+            <form id="analyze-form">
+                <label for="url-input">
+                    Introduce la URL a analizar
+                    <input type="url" id="url-input" name="url" placeholder="https://www.ejemplo.com" required>
+                    <small>Asegúrate de incluir el protocolo (https:// o http://)</small>
+                </label>
+
+                <fieldset>
+                    <legend>Selecciona la versión del protocolo HTTP</legend>
+                    <label for="http10">
+                        <input type="radio" id="http10" name="protocol" value="http1.0">
+                        HTTP/1.0 <small>(Protocolo original - Más lento)</small>
+                    </label>
+                    <label for="http1">
+                        <input type="radio" id="http1" name="protocol" value="http1.1" checked>
+                        HTTP/1.1 <small>(Estándar tradicional)</small>
+                    </label>
+                    <label for="http2">
+                        <input type="radio" id="http2" name="protocol" value="http2">
+                        HTTP/2 <small>(Multiplexación mejorada)</small>
+                    </label>
+                    <label for="http3">
+                        <input type="radio" id="http3" name="protocol" value="http3">
+                        HTTP/3 <small>(QUIC - Más rápido)</small>
+                    </label>
+                </fieldset>
+
+                <button type="submit" id="analyze-button">🚀 Analizar Ahora</button>
+            </form>
+        </section>
+
+        <section id="results-section">
+            <article id="loader" aria-busy="true">
+                <p>Analizando<span class="loading-dots"></span></p>
+                <p><small>Esto puede tomar unos segundos mientras recopilamos las métricas de rendimiento</small></p>
+            </article>
+
+            <div id="error-message" class="error-card">
+                <h4>❌ Error en el Análisis</h4>
+                <p id="error-text"></p>
+                <button onclick="hideError()" type="button" class="secondary">Intentar de Nuevo</button>
+            </div>
+            
+            <div id="results-data">
+                <h3>📊 Resultados para: <strong id="result-url"></strong><span id="protocol-badge" class="protocol-badge"></span></h3>
+
+                <h4>Métricas Clave</h4>
+                <div class="grid grid-metrics">
+                    <div class="metric-card">
+                        <h3>⏱️ Tiempo de Carga</h3>
+                        <p id="metric-load-time">- s</p>
+                    </div>
+                    <div class="metric-card">
+                        <h3>⚡ TTFB</h3>
+                        <p id="metric-ttfb">- ms</p>
+                    </div>
+                    <div class="metric-card">
+                        <h3>📦 Nº de Peticiones</h3>
+                        <p id="metric-requests">-</p>
+                    </div>
+                    <div class="metric-card">
+                        <h3>💾 Tamaño Total</h3>
+                        <p id="metric-size">- kB</p>
+                    </div>
+                </div>
+
+                <h4 style="margin-top: 2rem;">📈 Gráfico de Cascada (Waterfall)</h4>
+                <div class="waterfall-container" id="waterfall-chart">
+                    <p style="text-align: center; color: var(--pico-muted-color);">Los datos del gráfico aparecerán aquí después del análisis</p>
+                </div>
+                
+                <h4 style="margin-top: 2rem;">📋 Detalle de Recursos</h4>
+                <div class="overflow-auto">
+                    <table id="resources-table">
+                        <thead>
+                            <tr>
+                                <th>Recurso</th>
+                                <th>Status</th>
+                                <th>Tipo</th>
+                                <th>Tamaño</th>
+                                <th>Tiempo</th>
+                            </tr>
+                        </thead>
+                        <tbody id="resources-table-body">
+                            <tr>
+                                <td colspan="5" style="text-align: center; color: var(--pico-muted-color);">
+                                    Aún no hay datos. Realiza un análisis.
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <details style="margin-top: 2rem;">
+                    <summary>💡 Recomendaciones de Optimización</summary>
+                    <div id="recommendations">
+                        <p>Las recomendaciones aparecerán después del análisis</p>
+                    </div>
+                </details>
+            </div>
+        </section>
+    </main>
+
+    <footer class="container" style="margin-top: 3rem; text-align: center; color: var(--pico-muted-color);">
+        <small>
+            <p>🔧 HTTP Protocol Analyzer - Simulación de análisis de rendimiento web</p>
+            <p>Los resultados son simulados para propósitos demostrativos</p>
+        </small>
+    </footer>
+
+    <script>
+        // Referencias a elementos del DOM
+        const form = document.getElementById('analyze-form');
+        const loader = document.getElementById('loader');
+        const resultsData = document.getElementById('results-data');
+        const errorMessage = document.getElementById('error-message');
+        const analyzeButton = document.getElementById('analyze-button');
+
+        // Función para validar URL
+        function isValidUrl(string) {
+            try {
+                const url = new URL(string);
+                return url.protocol === 'http:' || url.protocol === 'https:';
+            } catch (_) {
+                return false;
+            }
+        }
+
+        // Función para simular análisis de rendimiento
+        async function simulateAnalysis(url, protocol) {
+            // Simular tiempo de análisis
+            await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+
+            // Factores de rendimiento basados en protocolo
+            const protocolFactors = {
+                'http1.0': { speedFactor: 1.8, requestFactor: 1.3 },
+                'http1.1': { speedFactor: 1.2, requestFactor: 1.0 },
+                'http2': { speedFactor: 0.8, requestFactor: 0.7 },
+                'http3': { speedFactor: 0.6, requestFactor: 0.5 }
+            };
+
+            const factor = protocolFactors[protocol];
+            const baseLoadTime = 2.5 + Math.random() * 2;
+            const loadTime = (baseLoadTime * factor.speedFactor).toFixed(2);
+            const ttfb = Math.round((200 + Math.random() * 800) * factor.speedFactor);
+            const requests = Math.round((25 + Math.random() * 50) * factor.requestFactor);
+            const totalSize = Math.round((500 + Math.random() * 1500) * factor.requestFactor);
+
+            // Generar recursos simulados
+            const resourceTypes = [
+                { type: 'HTML', ext: '.html', class: 'bar-html' },
+                { type: 'CSS', ext: '.css', class: 'bar-css' },
+                { type: 'JavaScript', ext: '.js', class: 'bar-js' },
+                { type: 'Image', ext: '.png', class: 'bar-image' },
+                { type: 'Font', ext: '.woff2', class: 'bar-font' },
+                { type: 'Other', ext: '.json', class: 'bar-other' }
+            ];
+
+            const resources = [];
+            const domain = new URL(url).hostname;
+            
+            for (let i = 0; i < requests; i++) {
+                const resourceType = resourceTypes[Math.floor(Math.random() * resourceTypes.length)];
+                const size = Math.round(Math.random() * 200 + 10);
+                const time = Math.round(Math.random() * 1000 + 50);
+                const status = Math.random() > 0.05 ? 200 : (Math.random() > 0.5 ? 404 : 500);
+                
+                resources.push({
+                    url: `${domain}/resource${i}${resourceType.ext}`,
+                    status: status,
+                    type: resourceType.type,
+                    size: size,
+                    time: time,
+                    class: resourceType.class
+                });
+            }
+
+            return {
+                url,
+                protocol,
+                summary: {
+                    totalLoadTime: loadTime,
+                    ttfb: ttfb,
+                    totalRequests: requests,
+                    totalSize: totalSize
+                },
+                resources: resources.sort((a, b) => b.time - a.time)
+            };
+        }
+
+        // Función para mostrar error
+        function showError(message) {
+            document.getElementById('error-text').textContent = message;
+            loader.style.display = 'none';
+            errorMessage.style.display = 'block';
+            resultsData.style.display = 'none';
+            analyzeButton.disabled = false;
+            analyzeButton.textContent = '🚀 Analizar Ahora';
+        }
+
+        // Función para ocultar error
+        function hideError() {
+            errorMessage.style.display = 'none';
+        }
+
+        // Función para generar recomendaciones
+        function generateRecommendations(data) {
+            const recommendations = [];
+            
+            if (data.summary.totalLoadTime > 3) {
+                recommendations.push('⚠️ Tiempo de carga elevado. Considera optimizar imágenes y minificar recursos.');
+            }
+            
+            if (data.summary.ttfb > 500) {
+                recommendations.push('🐌 TTFB alto. Revisa la configuración del servidor y considera usar CDN.');
+            }
+            
+            if (data.summary.totalRequests > 50) {
+                recommendations.push('📦 Muchas peticiones HTTP. Considera combinar archivos CSS/JS.');
+            }
+            
+            if (data.protocol === 'http1.1' || data.protocol === 'http1.0') {
+                recommendations.push('🔄 Actualizar a HTTP/2 o HTTP/3 mejoraría significativamente el rendimiento.');
+            }
+            
+            if (data.protocol === 'http1.0') {
+                recommendations.push('⚠️ HTTP/1.0 es muy antiguo. No soporta conexiones persistentes, lo que ralentiza considerablemente la carga.');
+            }
+            
+            const errorResources = data.resources.filter(r => r.status !== 200);
+            if (errorResources.length > 0) {
+                recommendations.push(`❌ ${errorResources.length} recursos fallan al cargar. Revisa los enlaces rotos.`);
+            }
+
+            if (recommendations.length === 0) {
+                recommendations.push('✅ ¡Excelente! El sitio tiene un buen rendimiento general.');
+            }
+            
+            return recommendations;
+        }
+
+        // Función para crear el gráfico de cascada
+        function createWaterfallChart(resources) {
+            const container = document.getElementById('waterfall-chart');
+            container.innerHTML = '';
+            
+            if (resources.length === 0) {
+                container.innerHTML = '<p style="text-align: center;">No hay recursos para mostrar</p>';
+                return;
+            }
+
+            const maxTime = Math.max(...resources.map(r => r.time));
+            
+            resources.slice(0, 15).forEach(resource => {
+                const item = document.createElement('div');
+                item.className = 'waterfall-item';
+                
+                const percentage = (resource.time / maxTime) * 100;
+                
+                item.innerHTML = `
+                    <div class="waterfall-label" title="${resource.url}">${resource.url}</div>
+                    <div class="waterfall-bar-container">
+                        <div class="waterfall-bar ${resource.class}" style="width: ${percentage}%"></div>
+                    </div>
+                    <div class="waterfall-time">${resource.time}ms</div>
+                `;
+                
+                container.appendChild(item);
+            });
+
+            if (resources.length > 15) {
+                const moreItem = document.createElement('div');
+                moreItem.style.textAlign = 'center';
+                moreItem.style.marginTop = '1rem';
+                moreItem.style.color = 'var(--pico-muted-color)';
+                moreItem.innerHTML = `<small>... y ${resources.length - 15} recursos más</small>`;
+                container.appendChild(moreItem);
+            }
+        }
+
+        // Función para poblar la tabla de recursos
+        function populateResourcesTable(resources) {
+            const tableBody = document.getElementById('resources-table-body');
+            tableBody.innerHTML = '';
+            
+            if (resources.length === 0) {
+                const row = tableBody.insertRow();
+                row.innerHTML = '<td colspan="5" style="text-align: center;">No hay recursos para mostrar</td>';
+                return;
+            }
+            
+            resources.forEach(resource => {
+                const row = tableBody.insertRow();
+                const statusClass = resource.status === 200 ? 'success-indicator' : 
+                                   resource.status === 404 ? 'warning-indicator' : 'error-indicator';
+                
+                row.innerHTML = `
+                    <td title="${resource.url}">${resource.url.length > 50 ? resource.url.substring(0, 47) + '...' : resource.url}</td>
+                    <td><span class="${statusClass}">${resource.status}</span></td>
+                    <td>${resource.type}</td>
+                    <td>${resource.size} kB</td>
+                    <td>${resource.time} ms</td>
+                `;
+            });
+        }
+
+        // Event listener para el formulario
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('analyze-form');
+            const analyzeButton = document.getElementById('analyze-button');
+            
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                
+                const url = document.getElementById('url-input').value.trim();
+                const protocol = document.querySelector('input[name="protocol"]:checked').value;
+            
+            // Validar URL
+            if (!isValidUrl(url)) {
+                showError('Por favor, introduce una URL válida (debe incluir http:// o https://)');
+                return;
+            }
+            
+            // Mostrar loader y ocultar otros elementos
+            resultsData.style.display = 'none';
+            errorMessage.style.display = 'none';
+            loader.style.display = 'block';
+            analyzeButton.disabled = true;
+            analyzeButton.textContent = '⏳ Analizando...';
+            
+            try {
+                // Simular análisis
+                const data = await simulateAnalysis(url, protocol);
+                
+                // Poblar resultados
+                document.getElementById('result-url').textContent = data.url;
+                document.getElementById('protocol-badge').textContent = data.protocol.toUpperCase();
+                document.getElementById('metric-load-time').textContent = `${data.summary.totalLoadTime} s`;
+                document.getElementById('metric-ttfb').textContent = `${data.summary.ttfb} ms`;
+                document.getElementById('metric-requests').textContent = data.summary.totalRequests;
+                document.getElementById('metric-size').textContent = `${data.summary.totalSize} kB`;
+                
+                // Crear gráfico de cascada
+                createWaterfallChart(data.resources);
+                
+                // Poblar tabla de recursos
+                populateResourcesTable(data.resources);
+                
+                // Generar recomendaciones
+                const recommendations = generateRecommendations(data);
+                const recommendationsContainer = document.getElementById('recommendations');
+                recommendationsContainer.innerHTML = recommendations.map(rec => `<p>${rec}</p>`).join('');
+                
+                // Mostrar resultados
+                loader.style.display = 'none';
+                resultsData.style.display = 'block';
+                
+            } catch (error) {
+                showError('Ha ocurrido un error durante el análisis. Por favor, inténtalo de nuevo.');
+                console.error('Error:', error);
+            } finally {
+                analyzeButton.disabled = false;
+                analyzeButton.textContent = '🚀 Analizar Ahora';
+            }
+        });
+
+        // Función global para ocultar errores
+        window.hideError = hideError;
+
+        // Mensaje de bienvenida
+        console.log('🌐 HTTP Protocol Analyzer cargado correctamente');
+        console.log('Introduce una URL y selecciona un protocolo para comenzar el análisis');
+        });
+    </script>
+</body>
+
+</html>
